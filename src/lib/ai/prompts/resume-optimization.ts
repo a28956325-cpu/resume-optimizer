@@ -44,4 +44,6 @@ Return a JSON object with this exact structure:
 IMPORTANT: 
 - The optimizedResume must contain ALL sections from the original
 - Track every single change made
-- Return ONLY the JSON object, no markdown, no extra text`;
+- Return ONLY the JSON object, no markdown, no extra text
+- Each bullet point MUST be concise enough to fit on 2 lines or fewer (approximately 150-170 characters max per bullet). If a bullet is too long, condense it while preserving the key impact and metrics.
+- The ENTIRE optimized resume MUST fit on a single page. Do NOT add content that would cause the resume to exceed one page. If the original resume is already close to one page, prioritize conciseness — trim less impactful bullets rather than expanding content.`;
