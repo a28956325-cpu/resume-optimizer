@@ -247,7 +247,9 @@ export async function editPDFWithILovePDF(
 ): Promise<Buffer> {
   try {
     const ILovePDFApi = (await import("@ilovepdf/ilovepdf-nodejs")).default;
-    const ILovePDFFile = (await import("@ilovepdf/ilovepdf-nodejs")).ILovePDFFile;
+    const ILovePDFFile = (
+      await import("@ilovepdf/ilovepdf-nodejs/ILovePDFFile")
+    ).default;
     const TextElement = (
       await import("@ilovepdf/ilovepdf-js-core/tasks/edit/Text")
     ).default;
