@@ -37,13 +37,13 @@ export async function extractTextWithPositions(
   buffer: Buffer
 ): Promise<TextPosition[]> {
   try {
-    // Dynamic import to avoid bundler issues; disable the worker for Node.js usage
+    // Dynamic import to avoid bundler issues; disable the worker for Node.js usage.
+    // Use the legacy build which doesn't require browser APIs (e.g. DOMMatrix).
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const pdfjsLib = await import("pdfjs-dist/build/pdf.mjs" as string) as any;
-
-    // Setting workerSrc to false (not an empty string) tells pdfjs to use the
-    // fake/no-op worker, which works correctly in a Node.js / Next.js context.
-    pdfjsLib.GlobalWorkerOptions.workerSrc = false;
+    const pdfjsLib = await import(
+      "pdfjs-dist/legacy/build/pdf.mjs" as string
+    ) as any;
+    // Do NOT set GlobalWorkerOptions.workerSrc — let disableWorker handle it
 
     const uint8Array = new Uint8Array(buffer);
     const loadingTask = pdfjsLib.getDocument({

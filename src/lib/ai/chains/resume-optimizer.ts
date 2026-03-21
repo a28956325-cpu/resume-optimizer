@@ -10,6 +10,42 @@ interface OptimizationOutput {
   summary: string;
 }
 
+function repairAndParseJSON(raw: string): OptimizationOutput {
+  // Remove markdown fences if present
+  let cleaned = raw.replace(/```json\n?|\n?```/g, "").trim();
+
+  // First attempt: direct parse
+  try {
+    return JSON.parse(cleaned) as OptimizationOutput;
+  } catch {
+    // Second attempt: extract JSON object via regex
+    const match = cleaned.match(/\{[\s\S]*\}/);
+    if (match) {
+      let extracted = match[0];
+      // Strip trailing commas before ] or }
+      extracted = extracted.replace(/,(\s*[}\]])/g, "$1");
+      try {
+        return JSON.parse(extracted) as OptimizationOutput;
+      } catch {
+        // Fall through to throw below
+      }
+    }
+    throw new Error("Could not parse optimization response as JSON");
+  }
+}
+
+function validateOutput(output: OptimizationOutput): void {
+  if (
+    typeof output.optimizedResume !== "string" ||
+    !Array.isArray(output.changes) ||
+    typeof output.summary !== "string"
+  ) {
+    throw new Error(
+      "Optimization response is missing required fields (optimizedResume, changes, summary)"
+    );
+  }
+}
+
 export async function optimizeResume(
   resumeText: string,
   jobDescription: string,
@@ -26,6 +62,7 @@ export async function optimizeResume(
     keywords: keywords.join(", "),
   });
 
-  const cleaned = result.replace(/```json\n?|\n?```/g, "").trim();
-  return JSON.parse(cleaned) as OptimizationOutput;
+  const output = repairAndParseJSON(result);
+  validateOutput(output);
+  return output;
 }

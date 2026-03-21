@@ -1,8 +1,8 @@
 export const AI_CONFIG = {
   claude: {
     model: "claude-sonnet-4-6",
-    maxTokens: 4096,
-    temperature: 0.3,
+    maxTokens: 8192,
+    temperature: 0.1,
   },
   openai: {
     model: "gpt-4o-mini",
