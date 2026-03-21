@@ -60,9 +60,13 @@ export default async function ResultPage({ params }: ResultPageProps) {
               {optimization.matchScoreBefore ?? 0}%
             </p>
           </Card>
-          <Card className="bg-green-50 border-green-200">
-            <p className="text-sm text-green-600 mb-1">Improvement</p>
-            <p className="text-3xl font-bold text-green-600">+{scoreDelta}%</p>
+          <Card className={`${scoreDelta >= 0 ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}`}>
+            <p className={`text-sm ${scoreDelta >= 0 ? 'text-green-600' : 'text-red-600'} mb-1`}>
+              {scoreDelta >= 0 ? 'Improvement' : 'Change'}
+            </p>
+            <p className={`text-3xl font-bold ${scoreDelta >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+              {scoreDelta >= 0 ? '+' : ''}{scoreDelta}%
+            </p>
           </Card>
           <Card>
             <p className="text-sm text-blue-600 mb-1">After</p>
