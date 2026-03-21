@@ -118,9 +118,19 @@ export function useOptimization() {
         originalPdfBase64 = btoa(binary);
       }
 
-      // Build a deduplicated list of text replacements from the changes array
+      // Build a deduplicated list of text replacements from the changes array.
+      // Only include replacements where the original text actually appears in the
+      // parsed resume text (normalized), so the API is not handed phrases that
+      // the PDF extractor will never find.
+      const normalizedResume = state.resumeText
+        .toLowerCase()
+        .replace(/\s+/g, " ");
       const replacements = state.result.changes
         .filter((c) => c.original && c.optimized && c.original !== c.optimized)
+        .filter((c) => {
+          const normalizedOriginal = c.original.toLowerCase().replace(/\s+/g, " ");
+          return normalizedResume.includes(normalizedOriginal);
+        })
         .map((c) => ({ original: c.original, replacement: c.optimized }));
 
       const res = await fetch("/api/generate-pdf", {
