@@ -1,6 +1,6 @@
 export const AI_CONFIG = {
   claude: {
-    model: "claude-3-5-sonnet-20241022",
+    model: "claude-opus-4-5-20250514",
     maxTokens: 4096,
     temperature: 0.3,
   },
