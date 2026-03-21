@@ -50,10 +50,16 @@ export default function OptimizationResultView({
           </p>
           <p className="text-xs text-gray-500">match score</p>
         </div>
-        <div className="bg-green-50 rounded-xl p-4 text-center">
-          <p className="text-sm text-green-600 mb-1">Improvement</p>
-          <p className="text-3xl font-bold text-green-600">+{scoreDelta}%</p>
-          <p className="text-xs text-green-600">gained</p>
+        <div className={`${scoreDelta >= 0 ? 'bg-green-50' : 'bg-red-50'} rounded-xl p-4 text-center`}>
+          <p className={`text-sm ${scoreDelta >= 0 ? 'text-green-600' : 'text-red-600'} mb-1`}>
+            {scoreDelta >= 0 ? 'Improvement' : 'Change'}
+          </p>
+          <p className={`text-3xl font-bold ${scoreDelta >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+            {scoreDelta >= 0 ? '+' : ''}{scoreDelta}%
+          </p>
+          <p className={`text-xs ${scoreDelta >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+            {scoreDelta >= 0 ? 'gained' : 'decreased'}
+          </p>
         </div>
         <div className="bg-blue-50 rounded-xl p-4 text-center">
           <p className="text-sm text-blue-600 mb-1">After</p>

@@ -291,6 +291,16 @@ export async function editPDFWithILovePDF(
         const offsets: Array<{ item: TextPosition; start: number }> = [];
 
         for (const item of line.items) {
+          // Insert a space when there's a visible gap between consecutive text items
+          if (lineText.length > 0) {
+            const prevOffset = offsets[offsets.length - 1];
+            const prevItem = prevOffset.item;
+            const prevEnd = prevItem.x + prevItem.width;
+            const gap = item.x - prevEnd;
+            if (gap > 1) {
+              lineText += " ";
+            }
+          }
           offsets.push({ item, start: lineText.length });
           lineText += item.text;
         }
@@ -363,11 +373,11 @@ export async function editPDFWithILovePDF(
     }
 
     if (elementsAdded === 0) {
-      // Nothing to edit – fall back to the react-pdf generator
+      // Nothing to edit – return the original PDF unchanged
       console.warn(
-        "editPDFWithILovePDF: no matching text positions found; falling back to react-pdf"
+        "editPDFWithILovePDF: no matching text positions found; returning original PDF"
       );
-      return generatePDFBuffer(optimizedContent, name);
+      return originalPdfBuffer;
     }
 
     await task.process();
@@ -375,7 +385,7 @@ export async function editPDFWithILovePDF(
     return Buffer.from(resultData);
   } catch (error) {
     console.error("editPDFWithILovePDF error:", error);
-    // Graceful fallback to react-pdf
-    return generatePDFBuffer(optimizedContent, name);
+    // Return the original PDF unchanged on error
+    return originalPdfBuffer;
   }
 }

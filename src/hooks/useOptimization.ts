@@ -151,7 +151,7 @@ export function useOptimization() {
     } finally {
       setState((prev) => ({ ...prev, isLoading: false }));
     }
-  }, [state.result]);
+  }, [state.result, state.resumeFile]);
 
   const reset = useCallback(() => {
     setState({
