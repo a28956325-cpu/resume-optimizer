@@ -11,5 +11,6 @@ export function createClaudeModel(): ChatAnthropic {
     model: AI_CONFIG.claude.model,
     maxTokens: AI_CONFIG.claude.maxTokens,
     temperature: AI_CONFIG.claude.temperature,
+    topP: undefined,
   });
 }
