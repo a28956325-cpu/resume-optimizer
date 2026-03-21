@@ -23,3 +23,9 @@ export function getAvailableProvider(): "claude" | "openai" | "demo" {
   if (process.env.OPENAI_API_KEY) return "openai";
   return "demo";
 }
+
+export function isILovePDFConfigured(): boolean {
+  return !!(
+    process.env.ILOVEPDF_PUBLIC_KEY && process.env.ILOVEPDF_SECRET_KEY
+  );
+}

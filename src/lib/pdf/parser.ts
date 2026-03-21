@@ -9,3 +9,83 @@ export async function parsePDF(buffer: Buffer): Promise<string> {
     throw new Error("Failed to parse PDF file");
   }
 }
+
+export interface TextPosition {
+  text: string;
+  /** X position from left edge, in PDF points (bottom-left origin) */
+  x: number;
+  /** Y position from bottom edge, in PDF points (bottom-left origin) */
+  y: number;
+  /** Width of the text run in PDF points */
+  width: number;
+  /** Height (font size) in PDF points */
+  height: number;
+  /** Font size in PDF points */
+  fontSize: number;
+  /** 0-indexed page number */
+  pageIndex: number;
+  /** Page height in PDF points (used for coordinate conversion) */
+  pageHeight: number;
+}
+
+/**
+ * Extracts text items with their positions from a PDF buffer.
+ * Uses pdfjs-dist running in Node.js (no worker thread).
+ */
+export async function extractTextWithPositions(
+  buffer: Buffer
+): Promise<TextPosition[]> {
+  // Dynamic import to avoid bundler issues; disable the worker for Node.js usage
+  const pdfjsLib = await import(
+    "pdfjs-dist/legacy/build/pdf.mjs" as string
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  ) as any;
+
+  // Disable the worker so pdfjs runs in-process under Node.js
+  pdfjsLib.GlobalWorkerOptions.workerSrc = "";
+
+  const uint8Array = new Uint8Array(buffer);
+  const loadingTask = pdfjsLib.getDocument({
+    data: uint8Array,
+    disableWorker: true,
+    useWorkerFetch: false,
+    isEvalSupported: false,
+  });
+
+  const pdf = await loadingTask.promise;
+  const items: TextPosition[] = [];
+
+  for (let pageIndex = 0; pageIndex < pdf.numPages; pageIndex++) {
+    const page = await pdf.getPage(pageIndex + 1);
+    const viewport = page.getViewport({ scale: 1.0 });
+    const pageHeight = viewport.height;
+
+    const textContent = await page.getTextContent();
+
+    for (const item of textContent.items) {
+      // Skip TextMarkedContent items (only process TextItem which has `str`)
+      if (!("str" in item) || !item.str) continue;
+
+      // transform = [scaleX, skewX, skewY, scaleY, translateX, translateY]
+      const transform: number[] = item.transform;
+      const x = transform[4];
+      const y = transform[5];
+
+      // Approximate font size from the scale component of the transform matrix
+      const fontSize = Math.abs(transform[3]) || Math.abs(transform[0]) || 12;
+
+      items.push({
+        text: item.str,
+        x,
+        y,
+        width: item.width,
+        height: item.height > 0 ? item.height : fontSize,
+        fontSize,
+        pageIndex,
+        pageHeight,
+      });
+    }
+  }
+
+  return items;
+}

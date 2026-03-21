@@ -102,10 +102,35 @@ export function useOptimization() {
     setState((prev) => ({ ...prev, isLoading: true }));
 
     try {
+      // Convert the original PDF file to base64 so the API can edit it in-place
+      let originalPdfBase64: string | undefined;
+      if (state.resumeFile) {
+        const arrayBuffer = await state.resumeFile.arrayBuffer();
+        // Use a chunked approach to avoid call-stack overflow on large PDFs
+        const bytes = new Uint8Array(arrayBuffer);
+        const chunkSize = 0x8000; // 32 KB per chunk
+        let binary = "";
+        for (let i = 0; i < bytes.length; i += chunkSize) {
+          binary += String.fromCharCode(
+            ...bytes.subarray(i, i + chunkSize)
+          );
+        }
+        originalPdfBase64 = btoa(binary);
+      }
+
+      // Build a deduplicated list of text replacements from the changes array
+      const replacements = state.result.changes
+        .filter((c) => c.original && c.optimized && c.original !== c.optimized)
+        .map((c) => ({ original: c.original, replacement: c.optimized }));
+
       const res = await fetch("/api/generate-pdf", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ content: state.result.optimizedResume }),
+        body: JSON.stringify({
+          content: state.result.optimizedResume,
+          originalPdfBase64,
+          replacements,
+        }),
       });
 
       if (!res.ok) throw new Error("PDF generation failed");
