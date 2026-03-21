@@ -1,9 +1,10 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useMemo, useState } from "react";
 import type { OptimizationResult, OptimizationChange } from "@/types/optimization";
 import Badge from "@/components/ui/Badge";
 import Button from "@/components/ui/Button";
+import { computeDiff } from "@/lib/utils/diff";
 
 interface OptimizationResultProps {
   result: OptimizationResult;
@@ -38,6 +39,11 @@ export default function OptimizationResultView({
   const [view, setView] = useState<"split" | "unified">("split");
 
   const scoreDelta = result.matchScoreAfter - result.matchScoreBefore;
+
+  const diffLines = useMemo(
+    () => computeDiff(result.originalResume, result.optimizedResume),
+    [result.originalResume, result.optimizedResume]
+  );
 
   return (
     <div className="space-y-6">
@@ -144,9 +150,29 @@ export default function OptimizationResultView({
               <div className="bg-gray-50 px-3 py-2 text-xs font-medium text-gray-500">
                 Unified Diff
               </div>
-              <pre className="p-3 text-xs font-mono text-gray-800 whitespace-pre-wrap max-h-96 overflow-auto bg-white">
-                {result.optimizedResume}
-              </pre>
+              <div className="p-3 text-xs font-mono max-h-96 overflow-auto bg-white">
+                {diffLines.map((line, i) => (
+                  <div
+                    key={`${i}-${line.type}-${line.content.slice(0, 20)}`}
+                    className={
+                      line.type === "added"
+                        ? "bg-green-50 text-green-800"
+                        : line.type === "removed"
+                        ? "bg-red-50 text-red-800"
+                        : "text-gray-800"
+                    }
+                  >
+                    <span className="select-none mr-1 text-gray-400">
+                      {line.type === "added"
+                        ? "+"
+                        : line.type === "removed"
+                        ? "-"
+                        : " "}
+                    </span>
+                    {line.content}
+                  </div>
+                ))}
+              </div>
             </div>
           )}
         </div>

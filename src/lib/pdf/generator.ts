@@ -221,6 +221,44 @@ function groupIntoLines(
 }
 
 /**
+ * Ratio used to estimate an average character width when a text item reports
+ * zero or negative width. Empirically, a character's width is roughly 50% of
+ * its font size for most common typefaces.
+ */
+const CHAR_WIDTH_ESTIMATE_RATIO = 0.5;
+
+/**
+ * Maps a position (`normPos`) in the whitespace-normalized version of string
+ * `s` back to the corresponding position in the original (un-normalized) `s`.
+ *
+ * Normalization is defined as collapsing every run of `/\s+/` into a single
+ * space.  Non-whitespace characters always map 1-to-1 between the two
+ * representations; only whitespace runs differ.
+ *
+ * @param s       The original (un-normalized) string.
+ * @param normPos The character index inside the normalized form of `s`.
+ * @returns       The corresponding character index inside the original `s`.
+ */
+function normToOrigIdx(s: string, normPos: number): number {
+  let norm = 0;
+  let orig = 0;
+  while (orig < s.length) {
+    if (norm === normPos) return orig;
+    if (/\s/.test(s[orig])) {
+      // An entire whitespace run counts as one character in the normalized string
+      while (orig < s.length && /\s/.test(s[orig])) {
+        orig++;
+      }
+      norm++;
+    } else {
+      orig++;
+      norm++;
+    }
+  }
+  return orig;
+}
+
+/**
  * Minimal white 1×1 PNG (70 bytes).
  * Used as the fill image for white-rectangle overlay elements.
  */
@@ -283,7 +321,7 @@ export async function editPDFWithILovePDF(
     for (const { original, replacement } of replacements) {
       if (!original || !replacement || original === replacement) continue;
 
-      const needle = original.trim().toLowerCase();
+      const needle = original.trim().toLowerCase().replace(/\s+/g, " ");
 
       for (const line of lines) {
         // Build the full line text (space-joined) and a per-item char-offset map
@@ -295,7 +333,12 @@ export async function editPDFWithILovePDF(
           if (lineText.length > 0) {
             const prevOffset = offsets[offsets.length - 1];
             const prevItem = prevOffset.item;
-            const prevEnd = prevItem.x + prevItem.width;
+            // Guard against zero/negative widths reported by some fonts/extractors
+            const prevWidth =
+              prevItem.width > 0
+                ? prevItem.width
+                : prevItem.fontSize * prevItem.text.length * CHAR_WIDTH_ESTIMATE_RATIO;
+            const prevEnd = prevItem.x + prevWidth;
             const gap = item.x - prevEnd;
             if (gap > 1) {
               lineText += " ";
@@ -306,11 +349,26 @@ export async function editPDFWithILovePDF(
         }
 
         const lineTextLower = lineText.toLowerCase();
-        const idx = lineTextLower.indexOf(needle);
-        if (idx === -1) continue;
 
-        // Find the items that overlap with [idx, idx+needle.length)
-        const endIdx = idx + needle.length;
+        // Strategy 1: direct substring match (preserves offset accuracy)
+        let idx = lineTextLower.indexOf(needle);
+        let endIdx: number;
+
+        if (idx !== -1) {
+          endIdx = idx + needle.length;
+        } else {
+          // Strategy 2: normalize whitespace in both strings and retry
+          const normalizedLineText = lineTextLower.replace(/\s+/g, " ");
+          const normIdx = normalizedLineText.indexOf(needle);
+          if (normIdx === -1) continue;
+          // Map normalized positions back to original string positions so that
+          // the offsets[] array (which tracks positions in the original lineText)
+          // can still be used for bounding-box calculation.
+          idx = normToOrigIdx(lineTextLower, normIdx);
+          endIdx = normToOrigIdx(lineTextLower, normIdx + needle.length);
+        }
+
+        // Find the items that overlap with [idx, endIdx)
         const matchedItems = offsets.filter(({ item, start }) => {
           const end = start + item.text.length;
           return start < endIdx && end > idx;
