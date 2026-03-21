@@ -247,9 +247,6 @@ export async function editPDFWithILovePDF(
 ): Promise<Buffer> {
   try {
     const ILovePDFApi = (await import("@ilovepdf/ilovepdf-nodejs")).default;
-    const ILovePDFFile = (
-      await import("@ilovepdf/ilovepdf-nodejs/ILovePDFFile")
-    ).default;
     const TextElement = (
       await import("@ilovepdf/ilovepdf-js-core/tasks/edit/Text")
     ).default;
@@ -266,11 +263,7 @@ export async function editPDFWithILovePDF(
     await task.start();
 
     // Upload the original PDF
-    const pdfFile = ILovePDFFile.fromArray(
-      new Uint8Array(originalPdfBuffer),
-      "resume.pdf"
-    );
-    await task.addFile(pdfFile);
+    await task.addFile(originalPdfBuffer, "resume.pdf");
 
     // Build grouped lines for text search
     const lines = groupIntoLines(textPositions);
@@ -278,11 +271,7 @@ export async function editPDFWithILovePDF(
     // Upload a white PNG once; reuse the returned BaseFile for all white-rect overlays.
     // The Image element constructor reads file.serverFilename (camelCase) that is
     // populated by task.addFile() after the upload completes.
-    const whitePngFile = ILovePDFFile.fromArray(
-      new Uint8Array(WHITE_PNG_BYTES),
-      "white.png"
-    );
-    const uploadedWhiteFile = await task.addFile(whitePngFile);
+    const uploadedWhiteFile = await task.addFile(WHITE_PNG_BYTES, "white.png");
 
     let elementsAdded = 0;
 
