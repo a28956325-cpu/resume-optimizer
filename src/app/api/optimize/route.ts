@@ -105,6 +105,24 @@ export async function POST(req: NextRequest) {
       allKeywords
     );
 
+    // Step 2.5: Quality check — filter out rejected changes if check passes
+    try {
+      const { qualityCheck } = await import("@/lib/ai/chains/quality-checker");
+      const qcResult = await qualityCheck(
+        resumeText,
+        optimizationOutput.optimizedResume,
+        optimizationOutput.changes
+      );
+      if (!qcResult.passed && qcResult.rejectedChanges.length > 0) {
+        optimizationOutput.changes = optimizationOutput.changes.filter(
+          (_, idx) => !qcResult.rejectedChanges.includes(idx)
+        );
+      }
+    } catch (qcError) {
+      // Quality check failure must not block the main flow
+      console.warn("Quality check failed (non-blocking):", qcError);
+    }
+
     // Step 3: Calculate scores
     const matchedBefore = findMatchedKeywords(resumeText, allKeywords);
     const matchedAfter = findMatchedKeywords(
