@@ -190,8 +190,9 @@ export interface TextReplacement {
 /**
  * Groups consecutive TextPosition items that lie on the same horizontal line
  * (within a small tolerance) and on the same page, sorted left-to-right.
+ * @internal
  */
-function groupIntoLines(
+export function groupIntoLines(
   items: TextPosition[]
 ): Array<{ pageIndex: number; pageHeight: number; items: TextPosition[] }> {
   type LineKey = string; // "pageIndex:roundedY"
