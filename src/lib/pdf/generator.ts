@@ -229,6 +229,28 @@ export function groupIntoLines(
 const CHAR_WIDTH_ESTIMATE_RATIO = 0.5;
 
 /**
+ * Normalizes text for fuzzy matching by:
+ * - Lowercasing
+ * - Replacing Unicode curly quotes with ASCII equivalents
+ * - Replacing em/en dashes with hyphens
+ * - Removing common bullet symbols
+ * - Collapsing all whitespace runs to a single space
+ */
+function normalizeForMatching(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/[\u2018\u2019\u201A\u201B\u02BC]/g, "'") // curly single quotes
+    .replace(/[\u201C\u201D\u201E\u201F\u00AB\u00BB]/g, '"') // curly double quotes
+    .replace(/[\u2013\u2014\u2015\u2212]/g, "-") // en/em dash, minus sign
+    .replace(
+      /[•·▪▸►◆■□\u2022\u2023\u25E6\u2043\u2219\u25AA\u25CF\uF0B7]/g,
+      ""
+    ) // bullets
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/**
  * Maps a position (`normPos`) in the whitespace-normalized version of string
  * `s` back to the corresponding position in the original (un-normalized) `s`.
  *
@@ -317,117 +339,198 @@ export async function editPDFWithILovePDF(
     const whitePngFile = ILovePDFFile.fromArray(WHITE_PNG_BYTES, "white.png");
     const uploadedWhiteFile = await task.addFile(whitePngFile);
 
+    // Pre-build line data (text + per-item offsets) once so it can be reused
+    // across all replacements and for cross-line matching.
+    interface LineData {
+      line: { pageIndex: number; pageHeight: number; items: TextPosition[] };
+      lineText: string;
+      offsets: Array<{ item: TextPosition; start: number }>;
+    }
+
+    const lineDataArray: LineData[] = lines.map((line) => {
+      let lineText = "";
+      const offsets: Array<{ item: TextPosition; start: number }> = [];
+
+      for (const item of line.items) {
+        // Insert a space when there is a visible gap between consecutive text items.
+        if (lineText.length > 0) {
+          const prevItem = offsets[offsets.length - 1].item;
+          // Guard against zero/negative widths reported by some fonts/extractors.
+          const prevWidth =
+            prevItem.width > 0
+              ? prevItem.width
+              : prevItem.fontSize * prevItem.text.length * CHAR_WIDTH_ESTIMATE_RATIO;
+          const prevEnd = prevItem.x + prevWidth;
+          if (item.x - prevEnd > 1) {
+            lineText += " ";
+          }
+        }
+        offsets.push({ item, start: lineText.length });
+        lineText += item.text;
+      }
+
+      return { line, lineText, offsets };
+    });
+
+    if (process.env.NODE_ENV === "development") {
+      console.log("[editPDF] Grouped lines:");
+      for (const { line, lineText } of lineDataArray) {
+        console.log(`  [page ${line.pageIndex}] "${lineText}"`);
+      }
+      console.log("[editPDF] Replacements to find:");
+      for (const r of replacements) {
+        console.log(`  needle: "${r.original}" -> "${r.replacement}"`);
+      }
+    }
+
+    /** Helper: draw a white-rect + replacement-text pair for a matched region. */
+    function applyReplacement(
+      matchedItems: TextPosition[],
+      pageIndex: number,
+      replacementText: string
+    ): void {
+      const firstItem = matchedItems[0];
+      const lastItem = matchedItems[matchedItems.length - 1];
+
+      const bboxX = firstItem.x;
+      // When spanning multiple lines, use the lower Y so the box starts at the
+      // bottom of the covered region.
+      const bboxY = Math.min(firstItem.y, lastItem.y);
+      const bboxW = lastItem.x + lastItem.width - firstItem.x;
+      // Height spans from the bottom of the lowest item to the top of the highest.
+      const topY = Math.max(
+        firstItem.y + (firstItem.height > 0 ? firstItem.height : firstItem.fontSize),
+        lastItem.y + (lastItem.height > 0 ? lastItem.height : lastItem.fontSize)
+      );
+      const bboxH = Math.max(topY - bboxY, Math.max(
+        firstItem.height > 0 ? firstItem.height : firstItem.fontSize,
+        lastItem.height > 0 ? lastItem.height : lastItem.fontSize
+      ));
+      const pagesStr = String(pageIndex + 1); // iLovePDF pages are 1-indexed
+      const fontSize = Math.round(firstItem.fontSize);
+
+      const whiteRect = new ImageElement({
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        file: uploadedWhiteFile as any,
+        coordinates: { x: bboxX, y: bboxY },
+        dimensions: {
+          w: Math.ceil(bboxW) + WHITE_RECT_PADDING,
+          h: Math.ceil(bboxH) + WHITE_RECT_PADDING,
+        },
+        pages: pagesStr,
+        opacity: 100,
+      });
+      task.addElement(whiteRect);
+
+      const textEl = new TextElement({
+        text: replacementText,
+        coordinates: { x: bboxX, y: bboxY },
+        dimensions: {
+          w: Math.ceil(bboxW) * TEXT_WIDTH_MULTIPLIER,
+          h: Math.ceil(bboxH) + TEXT_HEIGHT_PADDING,
+        },
+        pages: pagesStr,
+        font_family: "Arial Unicode MS",
+        font_size: fontSize > 0 ? fontSize : 10,
+        font_color: "#000000",
+      });
+      task.addElement(textEl);
+    }
+
     let elementsAdded = 0;
 
     for (const { original, replacement } of replacements) {
       if (!original || !replacement || original === replacement) continue;
 
+      // needle: whitespace-normalized, lowercased original text
       const needle = original.trim().toLowerCase().replace(/\s+/g, " ");
+      // normNeedle: fully normalized (unicode chars + whitespace)
+      const normNeedle = normalizeForMatching(original.trim());
 
-      for (const line of lines) {
-        // Build the full line text (space-joined) and a per-item char-offset map
-        let lineText = "";
-        const offsets: Array<{ item: TextPosition; start: number }> = [];
+      let found = false;
 
-        for (const item of line.items) {
-          // Insert a space when there's a visible gap between consecutive text items
-          if (lineText.length > 0) {
-            const prevOffset = offsets[offsets.length - 1];
-            const prevItem = prevOffset.item;
-            // Guard against zero/negative widths reported by some fonts/extractors
-            const prevWidth =
-              prevItem.width > 0
-                ? prevItem.width
-                : prevItem.fontSize * prevItem.text.length * CHAR_WIDTH_ESTIMATE_RATIO;
-            const prevEnd = prevItem.x + prevWidth;
-            const gap = item.x - prevEnd;
-            if (gap > 1) {
-              lineText += " ";
-            }
-          }
-          offsets.push({ item, start: lineText.length });
-          lineText += item.text;
-        }
+      // ── Strategies 1–3: single-line matching ─────────────────────────────────
+      for (const { line, lineText, offsets } of lineDataArray) {
+        if (found) break;
 
         const lineTextLower = lineText.toLowerCase();
 
-        // Strategy 1: direct substring match (preserves offset accuracy)
-        let idx = lineTextLower.indexOf(needle);
-        let endIdx: number;
+        let idx = -1;
+        let endIdx = -1;
 
-        if (idx !== -1) {
-          endIdx = idx + needle.length;
-        } else {
-          // Strategy 2: normalize whitespace in both strings and retry
-          const normalizedLineText = lineTextLower.replace(/\s+/g, " ");
-          const normIdx = normalizedLineText.indexOf(needle);
-          if (normIdx === -1) continue;
-          // Map normalized positions back to original string positions so that
-          // the offsets[] array (which tracks positions in the original lineText)
-          // can still be used for bounding-box calculation.
-          idx = normToOrigIdx(lineTextLower, normIdx);
-          endIdx = normToOrigIdx(lineTextLower, normIdx + needle.length);
+        // Strategy 1: direct substring match (highest accuracy)
+        const s1 = lineTextLower.indexOf(needle);
+        if (s1 !== -1) {
+          idx = s1;
+          endIdx = s1 + needle.length;
         }
 
-        // Find the items that overlap with [idx, endIdx)
-        const matchedItems = offsets.filter(({ item, start }) => {
-          const end = start + item.text.length;
-          return start < endIdx && end > idx;
-        });
+        // Strategy 2: collapse whitespace on both sides
+        if (idx === -1) {
+          const normWs = lineTextLower.replace(/\s+/g, " ");
+          const s2 = normWs.indexOf(needle);
+          if (s2 !== -1) {
+            idx = normToOrigIdx(lineTextLower, s2);
+            endIdx = normToOrigIdx(lineTextLower, s2 + needle.length);
+          }
+        }
+
+        // Strategy 3: full normalization (curly quotes, dashes, bullets + whitespace)
+        if (idx === -1) {
+          const normLine = normalizeForMatching(lineText);
+          const s3 = normLine.indexOf(normNeedle);
+          if (s3 !== -1) {
+            // Cannot easily map positions back through full normalization, so use
+            // the entire line's item range as the bounding region.
+            idx = 0;
+            endIdx = lineText.length;
+          }
+        }
+
+        if (idx === -1) continue;
+
+        const matchedItems = offsets
+          .filter(({ item, start }) => {
+            const end = start + item.text.length;
+            return start < endIdx && end > idx;
+          })
+          .map((o) => o.item);
 
         if (matchedItems.length === 0) continue;
 
-        // Bounding box of matched items
-        const firstItem = matchedItems[0].item;
-        const lastItem = matchedItems[matchedItems.length - 1].item;
-
-        const bboxX = firstItem.x;
-        const bboxY = firstItem.y; // PDF bottom-left origin
-        const bboxW = lastItem.x + lastItem.width - firstItem.x;
-        const bboxH = firstItem.height > 0 ? firstItem.height : firstItem.fontSize;
-        const pageNum = line.pageIndex + 1; // iLovePDF pages are 1-indexed
-        const fontSize = Math.round(firstItem.fontSize);
-
-        // iLovePDF uses bottom-left origin (same as PDF), so coordinates
-        // can be passed through directly.
-        // The `pages` param is a stringified 1-indexed page number.
-        const pagesStr = String(pageNum);
-
-        // 1) White rectangle overlay (covers old text).
-        //    Pass the uploaded BaseFile; the Image constructor reads
-        //    file.serverFilename to reference the already-uploaded asset.
-        const whiteRect = new ImageElement({
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          file: uploadedWhiteFile as any,
-          coordinates: { x: bboxX, y: bboxY },
-          dimensions: {
-            w: Math.ceil(bboxW) + WHITE_RECT_PADDING,
-            h: Math.ceil(bboxH) + WHITE_RECT_PADDING,
-          },
-          pages: pagesStr,
-          opacity: 100,
-        });
-        task.addElement(whiteRect);
-
-        // 2) Replacement text drawn at the same baseline position.
-        //    'Arial Unicode MS' is an iLovePDF server-side font that covers
-        //    both Latin and CJK characters.
-        const textEl = new TextElement({
-          text: replacement,
-          coordinates: { x: bboxX, y: bboxY },
-          dimensions: {
-            w: Math.ceil(bboxW) * TEXT_WIDTH_MULTIPLIER,
-            h: Math.ceil(bboxH) + TEXT_HEIGHT_PADDING,
-          },
-          pages: pagesStr,
-          font_family: "Arial Unicode MS",
-          font_size: fontSize > 0 ? fontSize : 10,
-          font_color: "#000000",
-        });
-        task.addElement(textEl);
-
+        applyReplacement(matchedItems, line.pageIndex, replacement);
         elementsAdded++;
-        break; // Replace only the first occurrence per replacement entry
+        found = true;
+      }
+
+      if (found) continue;
+
+      // ── Strategy 4: cross-line matching (same page, adjacent lines) ───────────
+      for (let li = 0; li < lineDataArray.length - 1; li++) {
+        if (found) break;
+
+        const ld1 = lineDataArray[li];
+        const ld2 = lineDataArray[li + 1];
+
+        // Only combine lines on the same page
+        if (ld1.line.pageIndex !== ld2.line.pageIndex) continue;
+
+        const combined = ld1.lineText.trimEnd() + " " + ld2.lineText.trimStart();
+        const normCombined = normalizeForMatching(combined);
+
+        if (normCombined.indexOf(normNeedle) === -1) continue;
+
+        // Collect all items from both lines as the matched region.
+        const matchedItems = [
+          ...ld1.offsets.map((o) => o.item),
+          ...ld2.offsets.map((o) => o.item),
+        ];
+
+        if (matchedItems.length === 0) continue;
+
+        applyReplacement(matchedItems, ld1.line.pageIndex, replacement);
+        elementsAdded++;
+        found = true;
       }
     }
 

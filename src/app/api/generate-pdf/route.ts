@@ -40,6 +40,17 @@ export async function POST(req: NextRequest) {
       const originalPdfBuffer = Buffer.from(originalPdfBase64, "base64");
       const textPositions = await extractTextWithPositions(originalPdfBuffer);
 
+      if (process.env.NODE_ENV === "development") {
+        console.log(
+          `[generate-pdf] iLovePDF path: ${textPositions.length} text positions, ${replacements.length} replacements`
+        );
+        for (const r of replacements) {
+          console.log(
+            `[generate-pdf]   replacement: "${r.original}" -> "${r.replacement}"`
+          );
+        }
+      }
+
       pdfBuffer = await editPDFWithILovePDF(
         originalPdfBuffer,
         textPositions,
