@@ -387,17 +387,18 @@ export async function editPDFWithILovePDF(
     function applyReplacement(
       matchedItems: TextPosition[],
       pageIndex: number,
+      pageHeight: number,
       replacementText: string
     ): void {
       const firstItem = matchedItems[0];
       const lastItem = matchedItems[matchedItems.length - 1];
 
       const bboxX = firstItem.x;
-      // When spanning multiple lines, use the lower Y so the box starts at the
-      // bottom of the covered region.
+      // pdfjs Y increases downward from the top of the page; the topmost
+      // (smallest) Y value is the start of the region.
       const bboxY = Math.min(firstItem.y, lastItem.y);
       const bboxW = lastItem.x + lastItem.width - firstItem.x;
-      // Height spans from the bottom of the lowest item to the top of the highest.
+      // Height spans from the top of the highest item to the bottom of the lowest.
       const topY = Math.max(
         firstItem.y + (firstItem.height > 0 ? firstItem.height : firstItem.fontSize),
         lastItem.y + (lastItem.height > 0 ? lastItem.height : lastItem.fontSize)
@@ -406,13 +407,18 @@ export async function editPDFWithILovePDF(
         firstItem.height > 0 ? firstItem.height : firstItem.fontSize,
         lastItem.height > 0 ? lastItem.height : lastItem.fontSize
       ));
+
+      // iLovePDF uses a bottom-up coordinate system (standard PDF coordinates),
+      // while pdfjs reports Y from the top of the page.  Convert here.
+      const ilovepdfY = pageHeight - bboxY - bboxH;
+
       const pagesStr = String(pageIndex + 1); // iLovePDF pages are 1-indexed
       const fontSize = Math.round(firstItem.fontSize);
 
       const whiteRect = new ImageElement({
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         file: uploadedWhiteFile as any,
-        coordinates: { x: bboxX, y: bboxY },
+        coordinates: { x: bboxX, y: ilovepdfY },
         dimensions: {
           w: Math.ceil(bboxW) + WHITE_RECT_PADDING,
           h: Math.ceil(bboxH) + WHITE_RECT_PADDING,
@@ -424,7 +430,7 @@ export async function editPDFWithILovePDF(
 
       const textEl = new TextElement({
         text: replacementText,
-        coordinates: { x: bboxX, y: bboxY },
+        coordinates: { x: bboxX, y: ilovepdfY },
         dimensions: {
           w: Math.ceil(bboxW) * TEXT_WIDTH_MULTIPLIER,
           h: Math.ceil(bboxH) + TEXT_HEIGHT_PADDING,
@@ -498,7 +504,7 @@ export async function editPDFWithILovePDF(
 
         if (matchedItems.length === 0) continue;
 
-        applyReplacement(matchedItems, line.pageIndex, replacement);
+        applyReplacement(matchedItems, line.pageIndex, line.pageHeight, replacement);
         elementsAdded++;
         found = true;
       }
@@ -528,7 +534,7 @@ export async function editPDFWithILovePDF(
 
         if (matchedItems.length === 0) continue;
 
-        applyReplacement(matchedItems, ld1.line.pageIndex, replacement);
+        applyReplacement(matchedItems, ld1.line.pageIndex, ld1.line.pageHeight, replacement);
         elementsAdded++;
         found = true;
       }
